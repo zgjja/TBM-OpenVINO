@@ -6,7 +6,6 @@ CMakeCache.txt
 
 # Prerequisites
 *.d
-*.cmake
 
 # Compiled Object files
 *.slo
@@ -39,4 +38,4 @@ CMakeCache.txt
 *.app
 
 !thirdparty/gflags/*.cmake
-!common/MVCam/lib
+!common/MVCam/lib/*.so

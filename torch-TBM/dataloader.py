@@ -12,7 +12,7 @@ import numpy as np
 
 class Stone(Dataset):
     def __init__(self, num_classes: int,
-            prefix: str = "./dataset/train",
+            prefix: str = "../../dataset/TBM/train",
             transform: Optional[transforms.Compose] = None
     ):
         self.num_classes = num_classes
@@ -60,7 +60,7 @@ if __name__ == '__main__':
         transforms.Normalize(mean, std, inplace=True), 
     ])
 
-    stone_dataset = Stone(num_classes=3, prefix='./dataset/test', transform=None)
+    stone_dataset = Stone(num_classes=3, prefix="../../dataset/TBM/test", transform=None)
     stone_dataloader = DataLoader(stone_dataset, batch_size=1, shuffle=True, num_workers=1)
     
     for i, (img, label) in enumerate(stone_dataloader, 1):

@@ -12,13 +12,6 @@ import torchvision.transforms as transforms
 from dataloader import *
 from vgg_11 import *
 
-EPOCH = 100
-LEARNING_RATE = 0.001
-CHECK_POINT = 1
-CLASSES = 3
-NET = "vgg11"
-FOLDER = "vgg11_adam_step/"
-
 
 def train(model            : nn.Module,
           transform        : Optional[transforms.Compose],
@@ -60,7 +53,9 @@ def train(model            : nn.Module,
     
     scaler = torch.cuda.amp.grad_scaler.GradScaler()
     ACCUMULATION_STEP = 4
-    os.mkdir(FOLDER)
+
+    if not os.path.isdir(FOLDER):
+        os.mkdir(FOLDER)
     for epoch in range(ini_epoch, EPOCH + 1):
         print(f"Epoch {epoch}: ")
         sum_loss = 0.
@@ -74,8 +69,9 @@ def train(model            : nn.Module,
                     # forward
                     output = model(image)
                     loss = loss_fn(output, label)
-                    mini_batch_loss.append(loss.item())
                     sum_loss += loss.item()
+                    mini_batch_loss.append(loss.item())
+                    
                     optimizer.zero_grad()
 
                 # backward
@@ -85,8 +81,9 @@ def train(model            : nn.Module,
             else:
                 output = model(image)
                 loss = loss_fn(output, label)
-                loss = loss / ACCUMULATION_STEP
                 sum_loss += loss.item()
+                loss = loss / ACCUMULATION_STEP
+                
                 loss.backward()
                 if i != 0 and i % ACCUMULATION_STEP == 0:
                     optimizer.step()
@@ -98,19 +95,19 @@ def train(model            : nn.Module,
             #     confusion_matrix, acc = test(model, transform, device)
             #     test_acc.append(acc)
             #     confusion_matrices.append(confusion_matrix)
-
-        lr_scheduler.step()
+        if lr_scheduler is not None:
+            lr_scheduler.step()
 
         per_epoch_loss.append(sum_loss / num_batch)
         print(f"Avg loss @ epoch {epoch}: {per_epoch_loss[-1]}\t"
               f"learning rate is {optimizer.param_groups[0]['lr']}")
 
-        # if epoch % 5 == 0 and epoch != ini_epoch:
-        #     confusion_matrix, acc = test(model, transform, device)
-        #     test_acc.append(acc)
-        #     confusion_matrices.append(confusion_matrix)
+        if epoch % CHECK_POINT == 0:
+            confusion_matrix, acc = test(model, transform, device)
+            test_acc.append(acc)
+            confusion_matrices.append(confusion_matrix)
             
-        if epoch % CHECK_POINT == 0 and epoch != ini_epoch:
+        if epoch % CHECK_POINT == 0 and epoch >= 5:
             print("saving {}".format(epoch))
             # quantized = torch.quantization.convert(model.to('cpu').eval())
             torch.save(
@@ -137,7 +134,7 @@ def test(model      : nn.Module,
          label_num  : int =3
 ):
     model.eval()
-    testdataset = Stone(num_classes=CLASSES, prefix="../stone_enhanced_zjq_3/test", transform=transform)
+    testdataset = Stone(num_classes=CLASSES, prefix="../../dataset/TBM/test", transform=transform)
     stone_testloader = DataLoader(testdataset, batch_size=1, num_workers=1, shuffle=False)
     
     print("Test the model with test dataset...")
@@ -157,20 +154,103 @@ def test(model      : nn.Module,
 if __name__ == "__main__":
     if not torch.cuda.is_available():
         exit()
-    BATCH_SIZE = 32
 
-    device = torch.device('cuda:0')
+    USE_FP16 = False  # True
+    BATCH_SIZE = 64 if not USE_FP16 else 128
+    EPOCH = 100
+    CHECK_POINT = 1
+    CLASSES = 3
+
+    LEARNING_RATE = 1e-2  # 1e-3
+    MOMENTUM = 0.9
+    WEIGHT_DECAY = 1e-3
+
+    NET = "vgg11_adam_step"
+    FOLDER = "models"
+    DEVICE = torch.device('cuda:0') # 'cpu'
+
+    # with ToTensor()
+    mean = [0.4548, 0.4811, 0.4541]
+    std = [0.2276, 0.2212, 0.2236]
+    transform = transforms.Compose([
+        transforms.ToTensor(), 
+        transforms.Normalize(mean, std, inplace=True)
+    ])
+
+    vgg11 = VGG11(3, 3).to(DEVICE)
+
     stone_dataset = Stone(num_classes=CLASSES, transform=transform)
-    stone_dataloader = DataLoader(stone_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
+    stone_dataloader = DataLoader(stone_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=8, pin_memory=True)
 
-    vgg11 = VGG11(3, 3).to(device)
-
-    for i in range(50, 1150, 50):
-        print(i)
-        pretrained_dict = f"./vgg11_fp32_old/vgg11_epoch_{i}.pth.tar"
-        pre_model = torch.load(pretrained_dict)
-        # print(pre_model.keys())
-        print(pre_model['scheduler'])
-        # print(pre_model['optimizer'].keys())
-        # pdb.set_trace()
+    model = VGG11(3, CLASSES)
+    # torch.quantization.fuse_modules(model, [['conv', 'relu']])
     
+    # model_dict = model.state_dict()
+    # vgg11 = models.vgg11(pretrained=True)  # https://download.pytorch.org/models/vgg11-8a719046.pth
+    # pretrained_dict = vgg11.state_dict()
+    # for k, v in model_dict.items():
+    #     if k in pretrained_dict and "classi" not in k:
+    #         model_dict[k] = pretrained_dict[k]
+    # model.load_state_dict(model_dict)
+
+    # model.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
+    # model_prepare = torch.quantization.prepare_qat(model)
+    
+    # model_int8 = torch.quantization.convert(model_prepare)
+    # print(model_int8.state_dict().keys())
+    # pdb.set_trace()
+
+    optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY, nesterov=True)
+    # optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    lr_scheduler = optim.lr_scheduler.ConstantLR(optimizer, 0.65, 80 * EPOCH)
+    loss_fn = nn.CrossEntropyLoss()
+    
+    path = None
+    # train(model, transform, stone_dataloader, optimizer, loss_fn, lr_scheduler)
+    train(model, None, stone_dataloader, optimizer, loss_fn, lr_scheduler, path=path, use_fp16=USE_FP16)
+
+    pdb.set_trace()
+
+    # print(a['state_dict'].keys())
+    # print(torch.int_repr(a['state_dict']['features.0.weight'])) # int8
+    # print(torch.int_repr(a['state_dict']['features.0.bias'])) # fp32
+    # print(a['state_dict']['features.0.bias'])
+
+    # print(quantized.features[0].scale.dtype)
+    # print(type(quantized.features[0]))
+
+
+    """two ways to print int8 quantized value"""
+    # print(quantized.state_dict()['features.0.weight'][0, ...])
+    # print(quantized.features[0].weight().int_repr().data[0, ...])
+    # print(quantized.features[0].scale)
+    # print(quantized.features[0].zero_point)
+        # b = VGG11(3,3)
+        # b.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
+        # b_prepare = torch.quantization.prepare_qat(b)
+        # quantized = torch.quantization.convert(b_prepare)
+        # quantized.load_state_dict(a["state_dict"])
+        # im = torch.tensor(np.zeros((1, 3, 224, 224), dtype=np.float32))
+        # im[0, 0, 0, 0] = 10
+        # im[0, 0, 0, 1] = 20
+        # im[0, 0, 0, 2] = 30
+        # d = quantized(im)
+        # pdb.set_trace()
+        # test(quantized, transform, 'cpu')
+        
+        # torch.save({'state_dict': quantized.state_dict()}, f"./shit_q.pth.tar")
+        # print(quantized.features[0].weight)
+        # print(d['features.0.weight'].dtype)
+        # print(d['classifier.0.weight'])
+        # print(a['state_dict'].keys())
+        # 
+        # pdb.set_trace()
+
+    # for i in range(50, 1150, 50):
+    #     print(i)
+    #     pretrained_dict = f"./vgg11_fp32_old/vgg11_epoch_{i}.pth.tar"
+    #     pre_model = torch.load(pretrained_dict)
+    #     # print(pre_model.keys())
+    #     print(pre_model['scheduler'])
+    #     # print(pre_model['optimizer'].keys())
+    #     # pdb.set_trace()

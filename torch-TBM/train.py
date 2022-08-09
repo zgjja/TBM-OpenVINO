@@ -7,6 +7,7 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 
+import torchvision.models as models
 import torchvision.transforms as transforms
 
 from dataloader import *
@@ -124,7 +125,7 @@ def train(model            : nn.Module,
             pickle.dump(per_epoch_loss, open(f'./{FOLDER}/epoch_loss_{NET}_{epoch}.pkl', 'wb'))
             pickle.dump(test_acc, open(f"./{FOLDER}/test_acc_{NET}_{epoch}.pkl", 'wb'))
             pickle.dump(confusion_matrices, open(f"./{FOLDER}/confusion_matrices_{NET}_{epoch}.pkl", 'wb'))
-            print("saving .pkl file complete")
+            print("saving .pkl file complete\n")
     print("Training complete. Saving checkpoint...")
 
 
@@ -155,13 +156,13 @@ if __name__ == "__main__":
     if not torch.cuda.is_available():
         exit()
 
-    USE_FP16 = False  # True
+    USE_FP16 = True  # False
     BATCH_SIZE = 64 if not USE_FP16 else 128
     EPOCH = 100
     CHECK_POINT = 1
     CLASSES = 3
 
-    LEARNING_RATE = 1e-2  # 1e-3
+    LEARNING_RATE = 1e-3
     MOMENTUM = 0.9
     WEIGHT_DECAY = 1e-3
 
@@ -185,13 +186,13 @@ if __name__ == "__main__":
     model = VGG11(3, CLASSES)
     # torch.quantization.fuse_modules(model, [['conv', 'relu']])
     
-    # model_dict = model.state_dict()
-    # vgg11 = models.vgg11(pretrained=True)  # https://download.pytorch.org/models/vgg11-8a719046.pth
-    # pretrained_dict = vgg11.state_dict()
-    # for k, v in model_dict.items():
-    #     if k in pretrained_dict and "classi" not in k:
-    #         model_dict[k] = pretrained_dict[k]
-    # model.load_state_dict(model_dict)
+    model_dict = model.state_dict()
+    vgg11 = models.vgg11(pretrained=True)
+    pretrained_dict = vgg11.state_dict()
+    for k, v in model_dict.items():
+        if k in pretrained_dict and "classi" not in k:
+            model_dict[k] = pretrained_dict[k]
+    model.load_state_dict(model_dict)
 
     # model.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
     # model_prepare = torch.quantization.prepare_qat(model)
@@ -200,8 +201,8 @@ if __name__ == "__main__":
     # print(model_int8.state_dict().keys())
     # pdb.set_trace()
 
-    optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY, nesterov=True)
-    # optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    # optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY, nesterov=True)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     lr_scheduler = optim.lr_scheduler.ConstantLR(optimizer, 0.65, 80 * EPOCH)
     loss_fn = nn.CrossEntropyLoss()
     

@@ -88,7 +88,6 @@ int main(int argc, char *argv[]) {
 
         std::cout << "Loading plugin" << '\n';
         InferencePlugin plugin = PluginDispatcher({core_plugin_dir}).getPluginByDevice(plug_dev);
-        InferencePlugin plugin_shit = PluginDispatcher({core_plugin_dir}).getPluginByDevice(plug_dev);
         
         if (FLAGS_p_msg) {
             static_cast<InferenceEngine::InferenceEnginePluginPtr>(plugin)->SetLogCallback(error_listener);
@@ -152,7 +151,7 @@ int main(int argc, char *argv[]) {
 
         std::cout << "Loading model to the plugin" << '\n';
         
-        ExecutableNetwork executable_network_slack = plugin_shit.LoadNetwork(network_slack, {});
+        ExecutableNetwork executable_network_slack = plugin.LoadNetwork(network_slack, {});
 
         // inputInfoItem.second = {};
         // outputInfo = {};
